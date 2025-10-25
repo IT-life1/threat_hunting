@@ -1,6 +1,6 @@
 ---
 title: "Практическая работа 001"
-author: "IT-life01@yandex.ru"
+author: "IT-life1@yandex.ru"
 format: 
   md:
     output-file: README.md

@@ -1,5 +1,5 @@
 # Практическая работа 001
-IT-life01@yandex.ru
+IT-life1@yandex.ru
 
 ## Цель работы
 
