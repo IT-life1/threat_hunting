@@ -1,0 +1,142 @@
+---
+title: "Практическая работа 002"
+author: "IT-life1@yandex.ru"
+format: 
+  md:
+    output-file: README.md
+---
+
+## Цель работы
+
+1. На практике освоить работу с языком программирования R в контексте анализа табличных данных  
+2. Углубить понимание базовых структур данных в R, особенно data.frame  
+3. Получить навыки применения ключевых функций из пакета `dplyr` — таких как `select()`, `filter()`, `mutate()`, `arrange()` и `group_by()`
+
+## Исходные данные
+
+1. Операционная система: Windows 10  
+2. Среда разработки: RStudio Desktop  
+3. Версия интерпретатора R: 4.5.1  
+
+## Задание
+
+С использованием пакета `dplyr` выполнить серию базовых операций над встроенным датасетом `starwars` и ответить на ряд аналитических вопросов.
+
+## Ход работы
+
+В рамках работы используется встроенный датасет `starwars` из пакета `dplyr`. Он содержит информацию о персонажах вселенной «Звёздных войн»: рост, массу, расу, цвет глаз и другие атрибуты. Ниже приведены решения поставленных задач с использованием современного синтаксиса R и функций `dplyr`.
+
+### Шаг 1
+
+Подключаем необходимую библиотеку:
+
+```{r}
+library(dplyr)
+```
+
+    
+#### Сколько строк в датафрейме?
+
+```{r}
+nrow(starwars)
+```
+
+#### Сколько столбцов в датафрейме?
+
+
+```{r}
+ncol(starwars)
+```
+
+#### Как просмотреть примерный вид датафрейма?
+
+```{r}
+starwars %>% glimpse()
+```
+
+#### Сколько уникальных рас персонажей (species) представлено в данных?
+
+```{r}
+starwars %>%
+  pull(species) %>%
+  na.omit() %>%
+  unique() %>%
+  length()
+```
+
+#### Найти самого высокого персонажа.
+
+```{r}
+starwars %>%
+  filter(!is.na(height)) %>%
+  slice_max(height, n = 1) %>%
+  pull(name)
+```
+
+#### Найти всех персонажей ниже 170
+ 
+```{r}
+starwars %>%
+  filter(height < 170) %>%
+  select(name, height) %>%
+  knitr::kable(format = "markdown")
+```
+
+#### Подсчитать ИМТ (индекс массы тела) для всех персонажей.
+
+```{r}
+starwars %>%
+  mutate(imt = mass / ((height / 100)^2)) %>%
+  select(name, imt) %>%
+  knitr::kable(format = "markdown")
+```
+
+
+#### Найти 10 самых “вытянутых” персонажей. “Вытянутость” оценить по отношению массы (mass) к росту (height) персонажей
+ 
+```{r}
+starwars %>%
+  filter(!is.na(mass), !is.na(height)) %>%
+  mutate(stretched = mass / height) %>%
+  arrange(stretched) %>%
+  head(10) %>%
+  select(name, stretched) %>%
+  knitr::kable(format = "markdown")
+```
+
+
+#### Найти средний возраст персонажей каждой расы вселенной Звездных войн
+
+```{r}
+starwars %>%
+  filter(!is.na(birth_year), !is.na(species)) %>%
+  group_by(species) %>%
+  summarise(avg_birth = mean(birth_year, na.rm = TRUE), .groups = "drop") %>%
+  select(species, avg_birth) %>%
+  knitr::kable(format = "markdown")
+```
+
+#### Найти самый распространенный цвет глаз персонажей вселенной Звездных войн.
+
+```{r}
+starwars %>%
+  count(eye_color, sort = TRUE) %>%
+  slice(1) %>%
+  pull(eye_color)
+```
+
+#### Подсчитать среднюю длину имени в каждой расе вселенной Звездных войн.
+
+```{r}
+starwars %>%
+  filter(!is.na(species)) %>%
+  mutate(name_len = nchar(name)) %>%
+  group_by(species) %>%
+  summarise(mean_name_length = mean(name_len, na.rm = TRUE), .groups = "drop") %>%
+  select(species, mean_name_length) %>%
+  knitr::kable(format = "markdown")
+```
+
+### Шаг 2
+
+Отчёт подготовлен и оформлен в соответствии с требованиями. Все задачи выполнены с использованием современных практик анализа данных в R.
