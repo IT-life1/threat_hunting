@@ -1,0 +1,385 @@
+---
+title: "Практическая работа 005"
+author: "IT-life1@yandex.ru"
+format:
+  md:
+    output-file: README.md
+---
+
+# Исследование информации о состоянии беспроводных сетей
+
+## Цель работы
+
+1.  Получить знания о методах исследования радиоэлектронной обстановки.
+2.  Составить представление о механизмах работы Wi-Fi сетей на канальном и сетевом уровне модели OSI.
+3.  Зекрепить практические навыки использования языка программирования R для обработки данных
+4.  Закрепить знания основных функций обработки данных экосистемы tidyverse языка R
+
+## Исходные данные
+
+1.  Операционная система: Windows 10
+2.  Среда разработки: RStudio
+3.  Версия интерпретатора R: 4.5.1
+
+## Ход работы
+
+1.  Импортируем данные wifi – https://storage.yandexcloud.net/dataset.ctfsec/P2_wifi_data.csv и https://github.com/AutomationNetTech/Vendor-OUI-MongoDB-Collection/blob/main/vendor_oui_id_is_oui_prefix.json; подготовим данные для дальнейшего анализа.
+
+2.  Проведем анализ датасета с точками доступа: 2.1 Определить небезопасные точки доступа (без шифрования – OPN) 2.2 Определить производителя для каждого обнаруженного устройства 2.3 Выявить устройства, использующие последнюю версию протокола шифрования WPA3, и названия точек доступа, реализованных на этих устройствах 2.4 Отсортировать точки доступа по интервалу времени, в течение которого они находились на связи, по убыванию 2.5 Обнаружить топ-10 самых быстрых точек доступа. 2.6 Отсортировать точки доступа по частоте отправки запросов (beacons) в единицу времени по их убыванию.
+
+3.  Проведем анализ датасета с клиентами: 3.1 Определить производителя для каждого обнаруженного устройства 3.2 Обнаружить устройства, которые НЕ рандомизируют свой MAC адрес 3.3 Кластеризовать запросы от устройств к точкам доступа по их именам Определить время появления устройства в зоне радиовидимости и время выхода его из нее 3.4 Оценить стабильность уровня сигнала внури кластера во времени. Выявить наиболее стабильный кластер.
+
+### Шаг 1
+
+Импортируем данные wifi.
+
+![](./imgs/img1.png)
+
+Импортируем данные о вендорах.
+
+![](./imgs/img2.png)
+
+#### Шаг 1.1
+
+#### Загрузим необходимые библиотеки.
+
+```{r}
+library(tidyverse)
+library(lubridate)
+library(readr)
+library(janitor)
+library(jsonlite)
+library(dplyr)
+library(stringr)
+```
+
+#### Подготовим датасет с точками доступа.
+
+```{r}
+wifi_data <- "wifi_data.csv"
+
+lines <- readr::read_lines(wifi_data)
+ap_start      <- which(str_starts(lines, "BSSID"))[1]
+station_start <- which(str_starts(lines, "Station MAC"))[1]
+
+ap <- readr::read_csv(
+  wifi_data,
+  skip = ap_start - 1,
+  n_max = station_start - ap_start - 2,
+  show_col_types = FALSE
+)
+
+stations <- readr::read_csv(
+  wifi_data,
+  skip = station_start - 1,
+  show_col_types = FALSE
+)
+
+ap       <- ap       %>% clean_names()
+stations <- stations %>% clean_names()
+
+names(ap)
+names(stations)
+
+ap <- ap %>%
+  rename(
+    first_time = first_time_seen,
+    last_time  = last_time_seen,
+    beacons    = number_beacons,
+    iv         = number_iv
+  ) %>%
+  mutate(
+    first_time = ymd_hms(str_trim(first_time)),
+    last_time  = ymd_hms(str_trim(last_time)),
+    channel    = as.integer(channel),
+    speed      = as.numeric(speed),
+    power      = as.numeric(power),
+    beacons    = as.numeric(beacons),
+    iv         = as.numeric(iv),
+    id_length  = as.integer(id_length),
+    lan_ip     = str_squish(lan_ip),
+    duration_sec = as.numeric(difftime(last_time, first_time, units = "secs")),
+    duration_min = duration_sec / 60
+  )
+
+glimpse(ap)
+
+```
+
+#### Подготовим датасет с клиентами.
+
+```{r}
+stations <- stations %>%
+  clean_names() %>%
+  rename(
+    station_mac   = station_mac,
+    first_time    = first_time_seen,
+    last_time     = last_time_seen,
+    packets       = number_packets,
+    probed_essids = probed_essi_ds
+  ) %>%
+  mutate(
+    first_time = ymd_hms(str_trim(first_time)),
+    last_time  = ymd_hms(str_trim(last_time)),
+    power      = as.numeric(power),
+    packets    = as.numeric(packets),
+    duration_sec = as.numeric(difftime(last_time, first_time, units = "secs")),
+    duration_min = duration_sec / 60
+  )
+
+glimpse(stations)
+```
+
+#### Подготовим данные о вендорах.
+
+```{r}
+oui_raw <- fromJSON("oui_vendor.json") %>% as_tibble()
+
+manuf <- oui_raw %>%
+  mutate(`_id` = as.character(`_id`)) %>%
+  select(`_id`, company)
+
+manuf %>%
+  summarise(
+    total_rows       = n(),
+    id_na            = sum(is.na(`_id`) | `_id` == ""),
+    company_na       = sum(is.na(company) | company == "")
+  )
+
+manuf_clean <- manuf %>%
+  mutate(
+    oui_full = toupper(`_id`),
+    oui      = substr(oui_full, 1, 6),
+    company  = ifelse(is.na(company) | company == "", "Unknown", company)
+  ) %>%
+  group_by(oui) %>%
+  summarise(
+    vendor = first(company),
+    .groups = "drop"
+  )
+
+glimpse(manuf_clean)
+head(manuf_clean)
+
+```
+
+#### Объединим таблицу о вендорах и точках доступа.
+
+```{r}
+extract_oui <- function(mac) {
+  mac %>%
+    str_replace_all("[:\\-]", "") %>%
+    toupper() %>%
+    substr(1, 6)
+}
+
+ap_with_vendor <- ap %>%
+  mutate(oui = extract_oui(bssid)) %>%
+  left_join(manuf_clean, by = "oui")
+
+```
+
+### Шаг 2
+
+#### Определим небезопасные точки доступа (без шифрования – OPN).
+
+```{r}
+ap_opn <- ap_with_vendor %>%
+  filter(str_detect(privacy, "OPN"))
+
+ap_opn %>%
+  select(bssid, essid, vendor, privacy, cipher, authentication, channel, speed, power)
+
+```
+
+#### Определим производителя для каждого обнаруженного устройства.
+
+```{r}
+ap_with_vendor %>%
+  select(bssid, essid, vendor) %>%
+  head(20)
+
+```
+
+#### Выявим устройства, использующие последнюю версию протокола шифрования WPA3, и названия точек доступа, реализованных на этих устройствах.
+
+```{r}
+ap_wpa3 <- ap_with_vendor %>%
+  filter(
+    str_detect(privacy, "WPA3") |
+      str_detect(authentication, "SAE")
+  )
+
+ap_wpa3 %>%
+  select(bssid, essid, vendor, privacy, cipher, authentication, channel, speed)
+
+```
+
+#### Отсортируем точки доступа по интервалу времени, в течение которого они находились на связи, по убыванию.
+
+```{r}
+ap_sessions <- ap_with_vendor %>%
+  group_by(bssid) %>%
+  arrange(first_time, .by_group = TRUE) %>%
+  mutate(
+    gap_min = as.numeric(difftime(
+      first_time,
+      lag(last_time, default = first_time[1]),
+      units = "mins"
+    )),
+    new_session = if_else(is.na(gap_min) | gap_min > 45, 1L, 0L),
+    session_id = cumsum(new_session)
+  ) %>%
+  group_by(bssid, session_id, essid, channel, speed, vendor, privacy, cipher, authentication) %>%
+  summarise(
+    first_time   = min(first_time),
+    last_time    = max(last_time),
+    power_mean   = mean(power, na.rm = TRUE),
+    beacons      = sum(beacons, na.rm = TRUE),
+    duration_sec = as.numeric(difftime(last_time, first_time, units = "secs")),
+    duration_min = duration_sec / 60,
+    .groups = "drop"
+  )
+
+ap_sessions_longest <- ap_sessions %>%
+  arrange(desc(duration_min))
+
+ap_sessions_longest %>%
+  select(bssid, essid, vendor, duration_min, channel, speed, privacy, cipher, authentication) %>%
+  head(20)
+
+```
+
+#### Обнаружим топ-10 самых быстрых точек доступа.
+
+```{r}
+top10_fast <- ap_sessions %>%
+  filter(speed > 0) %>%
+  arrange(desc(speed), desc(duration_min)) %>%
+  distinct(bssid, .keep_all = TRUE) %>%
+  slice_head(n = 10) %>%
+  select(bssid, essid, vendor, speed, channel, duration_min, privacy, cipher, authentication)
+
+top10_fast
+
+```
+
+#### Отсортиртируем точки доступа по частоте отправки запросов (beacons) в единицу времени по их убыванию.
+
+```{r}
+ap_beacon_rate <- ap_sessions %>%
+  mutate(
+    duration_sec = pmax(duration_sec, 1),
+    beacons_per_sec = beacons / duration_sec
+  ) %>%
+  arrange(desc(beacons_per_sec))
+
+ap_beacon_rate %>%
+  select(bssid, essid, vendor, beacons, duration_min, beacons_per_sec, channel, speed) %>%
+  head(20)
+```
+
+------------------------------------------------------------------------
+
+### Шаг 3
+
+#### Определим производителя для каждого обнаруженного устройства.
+
+```{r}
+extract_oui <- function(mac) {
+  mac %>%
+    str_replace_all("[:\\-]", "") %>%
+    toupper() %>%
+    substr(1, 6)
+}
+
+stations_with_vendor <- stations %>%
+  mutate(oui = extract_oui(station_mac)) %>%
+  left_join(manuf_clean, by = "oui")
+
+stations_with_vendor %>%
+  select(station_mac, oui, vendor, first_time, last_time, probed_essids) %>%
+  head(20)
+```
+
+#### Обнаружим устройства, которые НЕ рандомизируют свой MAC адрес.
+
+```{r}
+mac_first_octet <- function(mac) {
+  mac %>%
+    str_split("[:\\-]", simplify = TRUE) %>%
+    .[, 1] %>%
+    strtoi(base = 16)
+}
+
+stations_with_vendor <- stations_with_vendor %>%
+  mutate(
+    first_octet  = mac_first_octet(station_mac),
+    is_multicast = bitwAnd(first_octet, 1L) == 1L,
+    is_local     = bitwAnd(first_octet, 2L) == 2L,
+    randomized_mac = is_local & !is_multicast
+  )
+
+stations_not_randomized <- stations_with_vendor %>%
+  filter(!randomized_mac)
+
+stations_not_randomized %>%
+  select(station_mac, vendor, first_time, last_time, probed_essids) %>%
+  head(20)
+
+```
+
+#### Кластеризуем запросы от устройств к точкам доступа по их именам и определим время появления устройства в зоне радиовидимости и время выхода его из нее.
+
+```{r}
+station_probes <- stations_with_vendor %>%
+  mutate(
+    probed_essids = if_else(
+      is.na(probed_essids) | probed_essids == "",
+      NA_character_,
+      probed_essids
+    )
+  ) %>%
+  separate_rows(probed_essids, sep = ",") %>%
+  mutate(probed_essids = str_trim(probed_essids)) %>%
+  filter(!is.na(probed_essids), probed_essids != "")
+
+
+clusters <- station_probes %>%
+  group_by(station_mac, probed_essids, vendor) %>%
+  summarise(
+    first_seen   = min(first_time, na.rm = TRUE),
+    last_seen    = max(last_time,  na.rm = TRUE),
+    duration_min = as.numeric(difftime(last_seen, first_seen, units = "mins")),
+    n_samples    = n(),
+    .groups = "drop"
+  )
+
+clusters %>%
+  arrange(desc(duration_min)) %>%
+  head(20)
+
+```
+
+#### Оценим стабильность уровня сигнала внури кластера во времени и выявим наиболее стабильный кластер.
+
+```{r}
+cluster_signal <- station_probes %>%
+  group_by(station_mac, probed_essids, vendor) %>%
+  summarise(
+    first_seen   = min(first_time, na.rm = TRUE),
+    last_seen    = max(last_time,  na.rm = TRUE),
+    duration_min = as.numeric(difftime(last_seen, first_seen, units = "mins")),
+    mean_power   = mean(power, na.rm = TRUE),
+    sd_power     = sd(power, na.rm = TRUE),
+    n_samples    = n(),
+    .groups = "drop"
+  ) %>%
+  filter(n_samples >= 2)
+
+most_stable_clusters <- cluster_signal %>%
+  arrange(sd_power) %>%
+  head(20)
+
+most_stable_clusters
+```
