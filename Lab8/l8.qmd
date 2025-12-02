@@ -35,6 +35,8 @@ format:
 
 #### Настроим подключение к Yandex Query из DataLens
 
+Для этого перейдем в соответствующий сервис – https://datalens.yandex.ru/
+
 ![](./imgs/img1.png)
 
 ### Шаг 2
@@ -88,5 +90,7 @@ format:
 ### Шаг 4
 
 #### Создадим итоговый дашборд с нашими графиками
+
+https://datalens.ru/3j6vwl776ro8o-analiz-setevoy-aktivnostimozgov
 
 ![](./imgs/img3.png)
