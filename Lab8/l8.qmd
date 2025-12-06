@@ -91,6 +91,6 @@ format:
 
 #### Создадим итоговый дашборд с нашими графиками
 
-https://datalens.ru/3j6vwl776ro8o-analiz-setevoy-aktivnostimozgov
+[Ссылка на итоговый дашборд](https://datalens.ru/3j6vwl776ro8o-analiz-setevoy-aktivnostimozgov)
 
 ![](./imgs/img3.png)
